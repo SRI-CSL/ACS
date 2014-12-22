@@ -5,7 +5,9 @@ Addresspools Change Signaling (ACS).
 Please see [ACS](doc/acs.md) for more details about the protocol.
 Various terms and definitions are defined there.
 
-[JumpBox](http://github.com/SRI-CSL/jumpbox) has a built in ACS client.
+[JumpBox](http://github.com/SRI-CSL/jumpbox) has a built in ACS client and acscl.go can be used for quick tests too or automated usage.
+
+See [TestSetup](doc/testsetup.md) for a method of testing ACS on a local host.
 
 # Installation and Setup
 
