@@ -1,6 +1,4 @@
-# ACS
-
-Addresspools Change Signaling (ACS).
+# Addresspools Change Signaling (ACS)
 
 Please see [ACS](doc/acs.md) for more details about the protocol.
 Various terms and definitions are defined there.
