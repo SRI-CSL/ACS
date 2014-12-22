@@ -1,0 +1,9 @@
+# Defaults for ACS Gateway (acsgw) initscript
+# sourced by /etc/init.d/acsgw
+#
+# This is a bash shell fragment
+#
+
+# Start the daemon
+RUN_DAEMON="yes"
+

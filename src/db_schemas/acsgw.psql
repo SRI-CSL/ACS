@@ -1,0 +1,65 @@
+# Defiance Gateway (dgw) database
+
+# Cleanup old tables and types in reverse of creation
+DROP TABLE IF EXISTS relays CASCADE;
+DROP TABLE IF EXISTS redirects CASCADE;
+DROP TABLE IF EXISTS initials CASCADE;
+DROP TABLE IF EXISTS listeners CASCADE;
+DROP TABLE IF EXISTS bridges CASCADE;
+DROP TABLE IF EXISTS pools CASCADE;
+DROP TYPE IF EXISTS l_state CASCADE;
+
+# Listener State
+CREATE TYPE l_state AS ENUM (
+	'initial',
+	'redirect',
+	'relay'
+);
+
+# Addresspools routed to this gateway
+CREATE TABLE pools (
+	pool_id		SERIAL PRIMARY KEY,
+	prefix		CIDR UNIQUE NOT NULL
+);
+
+# Details about the bridges attached to this gateway
+CREATE TABLE bridges (
+	br_id		SERIAL PRIMARY KEY,
+	identity	TEXT,
+	type		TEXT,
+	options		TEXT,
+
+	address		INET NOT NULL,
+	port		INT NOT NULL,
+
+	UNIQUE (address, port)
+);
+
+CREATE TABLE listeners (
+	l_id		SERIAL PRIMARY KEY,
+	pool_id		SERIAL NOT NULL REFERENCES pools,
+	entered		TIMESTAMP NOT NULL DEFAULT current_timestamp,
+
+	address		INET NOT NULL,
+	port		INT NOT NULL,
+
+	cookie		TEXT NOT NULL,
+	state		l_state NOT NULL,
+
+	UNIQUE (pool_id, address, port)
+);
+
+CREATE TABLE redirects (
+	red_id		SERIAL PRIMARY KEY,
+	l_id		SERIAL NOT NULL REFERENCES listeners,
+	fullcookie	TEXT NOT NULL,
+	bridge		TEXT NOT NULL
+);
+
+CREATE TABLE relays (
+	rel_id		SERIAL PRIMARY KEY,
+	l_id		SERIAL NOT NULL REFERENCES listeners,
+	br_id		SERIAL NOT NULL REFERENCES bridges,
+	fullcookie	TEXT NOT NULL
+);
+

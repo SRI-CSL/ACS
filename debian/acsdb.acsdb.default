@@ -1,0 +1,8 @@
+# Defaults for ACS Database (acsdb) initscript
+# sourced by /etc/init.d/acsdb
+#
+# This is a bash shell fragment
+#
+
+# Start the daemon
+RUN_DAEMON="yes"

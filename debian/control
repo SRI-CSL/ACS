@@ -1,0 +1,20 @@
+Source: acs
+Maintainer: Jeroen Massar <massar@fsi.io>
+Section: web
+Priority: extra
+Standards-Version: 3.9.2
+Build-Depends: debhelper (>= 8.0.0~), apache2-dev | apache2-prefork-dev, libpq-dev, libxmltok1-dev, libc6-dev, libc6-dev-i386 [amd64] | libc6-dev-amd64 [i386]
+Homepage: https://github.com/SRI-CSL/ACS
+
+Package: acsdb
+Architecture: any
+Depends: postgresql, adduser, ${shlibs:Depends}, ${misc:Depends}
+Description: ACS DataBase
+ ACS DataBase
+
+Package: acsgw
+Architecture: any
+Depends: postgresql, adduser, ${shlibs:Depends}, ${misc:Depends}
+Description: ACS Gateway
+ ACS Gateway
+

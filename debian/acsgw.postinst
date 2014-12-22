@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -e
+
+# Create a user specific for ac-gw
+if ! getent passwd acsgw >/dev/null; then
+	adduser --quiet --system --no-create-home --home /var/run --shell /usr/sbin/nologin acsgw
+fi
+
+if [ "$1" = configure ] ; then
+# only enable on new installs, not on upgrades
+    if [ -z "$2" ] ; then
+	# Configure PostgreSQL
+	su postgres -c "/usr/sbin/acsgw setup_psql"
+
+	# Setup the database tables
+	/usr/sbin/acsgw setup_db
+    fi
+fi
+
+if [ -x /usr/sbin/invoke-rc.d ]; then
+	invoke-rc.d acsgw restart || true
+else
+	/etc/init.d/acsgw restart || true
+fi
+
+#DEBHELPER#

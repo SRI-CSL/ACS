@@ -1,0 +1,10 @@
+{
+	"initial": "10.1.1.54",
+	"redirect": "10.1.1.129",
+	"wait": 10,
+	"window": 10,
+	"password": "3c4e53beaedbebbda142",
+
+	"NOTE": "Change next test-when to test to test When",
+	"test-when": "2014-12-18T14:42:00Z/2017-02-01T14:42:00Z"
+}

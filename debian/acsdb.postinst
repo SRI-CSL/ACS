@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -e
+
+# Create a user specific for acsdb
+if ! getent passwd acsdb >/dev/null; then
+	adduser --quiet --system --no-create-home --home /var/run --shell /usr/sbin/nologin acsdb
+fi
+
+if [ "$1" = configure ] ; then
+# only enable on new installs, not on upgrades
+    if [ -z "$2" ] ; then
+	# Configure PostgreSQL
+	su postgres -c "/usr/sbin/acsdb setup_psql"
+
+	# Setup the database tables
+	/usr/sbin/acsdb.go setup_db
+    fi
+fi
+
+if [ -x /usr/sbin/invoke-rc.d ]; then
+	invoke-rc.d acsdb restart || true
+else
+	/etc/init.d/acsdb restart || true
+fi
+
+#DEBHELPER#

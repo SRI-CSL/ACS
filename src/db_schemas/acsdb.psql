@@ -1,0 +1,97 @@
+# ACS DataBase
+
+# Clean up old tables and types
+DROP TABLE IF EXISTS hits CASCADE;
+DROP TABLE IF EXISTS tickets CASCADE;
+DROP TABLE IF EXISTS listeners CASCADE;
+DROP TABLE IF EXISTS bridges CASCADE;
+DROP TABLE IF EXISTS pools CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TYPE IF EXISTS l_state CASCADE;
+DROP TYPE IF EXISTS pool_exclude CASCADE;
+
+# Address Pool Exclude
+CREATE TYPE pool_exclude AS ENUM (
+	'none',
+	'edges'
+);
+
+# Listener State
+CREATE TYPE l_state AS ENUM (
+	'unknown',
+	'initial',
+	'redirect',
+	'relay'
+);
+
+# APRP Users
+CREATE TABLE users (
+	usr_id		SERIAL PRIMARY KEY,
+	username	TEXT UNIQUE NOT NULL,
+	password	TEXT UNIQUE NOT NULL,
+	lastrequest	TIMESTAMP,
+	cb_url		TEXT,
+	cb_username	TEXT,
+	cb_password	TEXT
+);
+
+# The Netblocks that we serve
+CREATE TABLE pools (
+	pool_id		SERIAL PRIMARY KEY,
+	usr_id		SERIAL NOT NULL REFERENCES users,
+	prefix		CIDR UNIQUE NOT NULL,
+	totaddr		INT NOT NULL,
+	exclude		pool_exclude NOT NULL,
+	enabled		BOOLEAN DEFAULT true,
+	min_active	TIMESTAMP NOT NULL,
+	max_active	TIMESTAMP NOT NULL
+);
+
+CREATE TABLE bridges (
+	br_id		SERIAL PRIMARY KEY,
+	usr_id		SERIAL NOT NULL REFERENCES users,
+	identity	TEXT,
+	type		TEXT,
+	options		TEXT,
+
+	UNIQUE (usr_id, identity)
+);
+
+# The listeners that exist
+CREATE TABLE listeners (
+	l_id		SERIAL PRIMARY KEY,
+	pool_id		SERIAL NOT NULL REFERENCES pools,
+	entered		TIMESTAMP NOT NULL DEFAULT current_timestamp,
+	address		INET NOT NULL,
+	state		l_state NOT NULL,
+
+	UNIQUE (address)
+);
+
+# The NETs (Discovery Provisioning Details) we gave out
+CREATE TABLE tickets (
+	ticket_id	SERIAL PRIMARY KEY,
+	initial		SERIAL NOT NULL REFERENCES listeners(l_id),
+	redirect	SERIAL NOT NULL REFERENCES listeners(l_id),
+	relay		SERIAL NOT NULL REFERENCES listeners(l_id),
+	entered		TIMESTAMP NOT NULL DEFAULT current_timestamp,
+	wait		INTERVAL NOT NULL,
+	waitwindow	INTERVAL NOT NULL,
+	passphrase	TEXT NOT NULL,
+
+	UNIQUE (initial, redirect, relay, wait, waitwindow, passphrase)
+);
+
+CREATE TABLE hits (
+	hit_id		SERIAL PRIMARY KEY,
+	usr_id		SERIAL NOT NULL REFERENCES users,
+	entered		TIMESTAMP NOT NULL DEFAULT current_timestamp,
+	src		INET NOT NULL,
+	dst		INET NOT NULL,
+	host		TEXT NOT NULL,
+	method		TEXT NOT NULL,
+	url		TEXT NOT NULL,
+	useragent	TEXT,
+	verdict		l_state NOT NULL
+);
+

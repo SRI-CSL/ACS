@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# ACSdb
+	dh_installinit --no-start -r --name=acsdb -- defaults 91 09
+	mkdir -p debian/acsdb/usr/sbin/
+	cp src/acsdb.go debian/acsdb/usr/sbin/acsdb
+	mkdir -p debian/acsdb/usr/share/acs/
+	cp src/db_schemas/schema_db.psql debian/acsdb/usr/share/acs/
+
+	# ACSgw
+	dh_installinit --no-start -r --name=acsgw -- defaults 91 09
+	mkdir -p debian/acsgw/usr/sbin/
+	cp src/acsgw.go debian/acsgw/usr/sbin/acsgw
+	mkdir -p debian/acsgw/usr/share/acs/
+	cp src/db_schemas/schema_gw.psql debian/acsgw/usr/share/acs/
+
