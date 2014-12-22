@@ -54,6 +54,7 @@ There are two known implementations:
 
 A NET has the following structure:
 
+```
 {
 	"initial":	"192.0.2.1",
 	"redirect":	"192.0.2.2",
@@ -62,6 +63,7 @@ A NET has the following structure:
 	"passphrase":	"3c4e53beaedbebbda142",
 	"when":		"2014-02-01T14:42:00Z/2017-02-01T14:42:00Z"
 }
+```
 
 "initial" and "redirect" indicate which IPs or hostnames are used for
 these queries. They can optionally even include a path to make them more
@@ -103,10 +105,12 @@ these nodes (if they do we have worse problems).
 #### Request Response
 
 All POST requests answer with a result object:
+```
 {
 	"status":	"ok|error",
 	"message":	"All okay|this or that went wrong",
 }
+```
 
 When for instance an /add/ is repeated (which happens when ACSdb does a
 full-resync), a successive /add/ is ignored and accepted.
@@ -122,6 +126,7 @@ GET http://acsgw/status/
 
 at which ACSgw will respond with:
 
+```
 {
 	"version":			"git-hash",
 	"running-since":		12345678,
@@ -146,6 +151,7 @@ at which ACSgw will respond with:
 		"relays":		5
 	}
 }
+```
 
 This allows ACSdb to determine if the ACSgw is in sync.
 If a certain section has a wrong count it can issue a /reset/
@@ -156,11 +162,13 @@ This query is used by ACSgw to inform the ACSdb of it's current location
 and to inform it that it is still alive.
 
 http://acsdb/ping/
+```
 {
 	"callback":	"http://192.0.2.1:8081/",
 	"username":	"username",
 	"password":	"password",
 }
+```
 
 The username/password is chosen randomly at startup of acsgw, hence a restart
 of the ACSgw causes these values to change.
@@ -172,10 +180,12 @@ be and what a ACSgw thinks is. This is determined with the above "Status
 Query".
 
 http://acsgw/reset/
+```
 {
 	"what":		"all|pools|blocks|bridges|listeners",
 	"phase":	"",
 }
+```
 
 Depending on the "what" those sections are cleaned out.
 
@@ -212,11 +222,13 @@ When adding an Address Pool to a ACSgw it registers it to ACSdb:
 
 http://acsdb/pool/add/
 
+```
 {
 	"prefix":	"192.0.2.0/24",
 	"exclude":	"none|edges",
 	"when":		"iso8601",
 }
+```
 
 ###### Pool Removal, Disable, Enable
 
@@ -224,9 +236,11 @@ One can remove or temporary disable an Address Pool by having ACSgw send
 to ACSdb:
 
 http://acsdb/pool/{remove|disable|enable}/
+```
 {
 	"prefix":	"192.0.2.0/24",
 }
+```
 
 #### Bridges
 
@@ -235,19 +249,23 @@ http://acsdb/pool/{remove|disable|enable}/
 When adding a Bridge to a ACSgw, it is sent to the ACSdb using:
 
 http://acsdb/bridge/add/
+```
 {
 	"identity":	"bigbridge",
 	"type":		"http",
 	"options":	"options"
 }
+```
 
 or for a direct Tor bridge:
 
+```
 {
 	"identity"	"torbridge",
 	"type":		"tor",
 	"options":	""
 }
+```
 
 The Bridge Identity given is local to the ACSgw and used
 to indicate back to the ACSgw which bridge is selected.
@@ -257,9 +275,11 @@ to indicate back to the ACSgw which bridge is selected.
 When a Bridge is removed, ACSgw notifies ACSdb using:
 
 http://acsdb/bridge/remove/
+```
 {
 	"identity":	"torbridge"
 }
+```
 
 #### Listeners
 
@@ -273,11 +293,13 @@ Listeners are added using the /listener/add/{type}/ URL.
 ##### Listener Add Initial
 
 http://acsgw/listener/add/initial/
+```
 {
 	"address":		"192.0.2.1",
 	"port":			80,
 	"cookie":		"PHPSESSION"
 }
+```
 
 A address/port/hostname combo has to be unique.
 
@@ -287,14 +309,17 @@ hostnames for all IP addresses.
 ##### Listener Add Redirect
 
 http://acsgw/listener/add/redirect/
+```
 {
 	"address":	"192.0.2.2",
 	"cookie":	"PHPSESSION",
 	"fullcookie":	"SID=fZ4p5q6giv81oF9TbWjnYnPe00ftIHSn9lPuNN-qXmU=",
 	"bridges":	"base64-encoded json bridges",
 }
+```
 
 The bridges string contains:
+```
 [
 	{
 		"address":	"192.0.2.3",
@@ -309,7 +334,8 @@ The bridges string contains:
 		"type":		"tor",
 		"options":	""
 	},
-}
+]
+```
 
 This string can be encrypted inside stegonagrophy using the NET password.
 The ACSgw that functions as a redirect gateway does need to know the content.
@@ -324,12 +350,14 @@ bridge.
 ##### Listener Add Relay
 
 http://acsgw/listener/add/relay/
+```
 {
 	"address":	"192.0.2.3",
 	"port"		"80",
 	"fullcookie"	"COOKIENAME=COOKIEVALUE",
 	"identity":	"bigbridge"
 }
+```
 
 "identity" is the ACSgw-local Bridge Identity, this basically tells
 to pass on the connection directly.
@@ -348,6 +376,7 @@ For queries not in the ACL per default they are all logged by ACSgw to ACSdb.
 Unless a request is considered "good" we log a query with:
 
 http://acsdb/gw/hit/
+```
 {
 	"when":		"1418836319",
 	"src":		"192.0.2.42",
@@ -358,6 +387,7 @@ http://acsdb/gw/hit/
 	"useragent":	"ACS-Client/1.0",
 	"verdict":	"initial|relay|redirect|unknown",
 }
+```
 
 We ignore source ports as they would just add insignificant entropy.
 
@@ -374,10 +404,12 @@ we can count the number of connections.
 ##### ACL Add
 
 http://acsgw/acl/add/
+```
 {
 	"prefix":	"192.0.2.0/24",
 	"verdict":	"accept|block|ignore|drop",
 }
+```
 
 The verdict is either 'accept' to always accept packets from this prefix
 (useful for more specifics and the default), 'block' to block, but log
@@ -387,15 +419,18 @@ requests from the given prefix, 'ignore' for ignoring the requests
 ##### ACL Remove
 
 http://acsgw/acl/remove/
+```
 {
 	"prefix":	"192.0.2.0/24",
 }
+```
 
 ##### ACL List
 
 To retrieve the configured ACL ACSdb can call:
 
 GET http://acsgw/acl/list/
+```
 {
 	"prefixes":
 	[
@@ -409,6 +444,7 @@ GET http://acsgw/acl/list/
 		}
 	]
 }
+```
 
 ### Address Change Signaling (ACS)
 
