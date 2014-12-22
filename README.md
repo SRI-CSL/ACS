@@ -9,6 +9,8 @@ Various terms and definitions are defined there.
 
 See [TestSetup](doc/testsetup.md) for a method of testing ACS on a local host.
 
+![SAFDEF](https://github.com/SRI-CSL/ACS/blob/master/doc/safdef.png "SAFDEF")
+
 # Installation and Setup
 
 ## Debian
