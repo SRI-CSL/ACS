@@ -1,0 +1,2640 @@
+
+
+
+
+
+
+INTERNET-DRAFT                                               W A Simpson
+                                                              DayDreamer
+                                                                 P Vixie
+                                                                     ISC
+Intended status: Experimental                             5 January 2015
+
+
+                  Defiance Address-Change Signaling -
+                    Implementation and Specification
+                     draft-simpson-acsis-2013May04
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page i]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+1.  Introduction
+
+   This specification describes the details of address-change signaling
+   and the Address Pool Registration Protocol (APRP).  This document is
+   preliminary, and "[...]" indicates areas to be updated based on
+   implementation experience.
+
+   This document assumes that the reader is familiar with the related
+   document "Defiance Address-Change Signaling - Concepts and
+   Facilities" [ACSCF], where matching section titles provide important
+   background for this specification.
+
+
+1.1.  Terminology
+
+   The key words "MAY", "MUST, "MUST NOT", "OPTIONAL", "RECOMMENDED",
+   "REQUIRED", "SHOULD", and "SHOULD NOT" in this document are to be
+   interpreted as described in [RFC2119].
+
+   APRP             Address Pool Registration Protocol.
+
+   APRAdb           Address Pool Registration Administrative database.
+
+   byte             An 8-bit quantity; also known as "octet" in
+                    standardese.
+
+   Defiance User Agent
+                    A client-side mechanism that accesses these
+                    protocol(s) and service(s), expected to be
+                    implemented as an extention of the [Tor] mechanism.
+                    Details are beyond the scope of this specification.
+
+   DUA              Defiance User Agent.
+
+   silently discard The implementation discards the packet without
+                    further processing.  The implementation SHOULD
+                    provide the capability of logging the error,
+                    including the contents of the silently discarded
+                    packet, and SHOULD record the event in a statistics
+                    counter.
+
+   user             A person who operates a Defiance User Agent.
+
+   <number>         A decimal value.  Unless otherwise specified, these
+                    numbers are expected to be positive integers with a
+                    maximum of at least 2**23.
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 1]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   <string>         A quote delimited value.  Unless otherwise
+                    specified, <string> MUST NOT be NUL terminated.
+
+
+1.2.  Gateway Provisioning (Simplified)
+
+                          Gateway                APRAdb
+                          =======                ======
+                          Request Status      ->
+                            IP_state idle
+                                             <-  Accept (Ack)
+
+   As a Gateway (re-)starts, it contacts the APRAdb to register its IP
+   addresses.
+
+
+1.3.  Discovery Provisioning (Simplified)
+
+   DUA                    Gateway                APRAdb
+   ==========             =======                ======
+   (unspecified)       ->
+                          Request User        ->
+                                             <-  Accept (Ack)
+                      <-  (unspecified)
+
+   The DUA contacts the Discovery Provisioning server, that in turn
+   obtains the contact information.  This server MAY be co-located with
+   a Gateway (illustrated), or MAY be a separate entity at an
+   independent location.  The method of contact is beyond the scope of
+   this specification.
+
+                          Gateway(s)             APRAdb
+                          ==========             ======
+                                             <-  Request Status
+                                                   IP_state relay
+                          Accept (Ack)        ->
+                                             <-  Request Status
+                                                   IP_state redirect
+                          Accept (Ack)        ->
+                                             <-  Request Status
+                                                   IP_state initial
+                          Accept (Ack)        ->
+
+   The APRAdb updates Gateway(s) with the contact information.
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 2]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+1.4.  Initial Contact (Simplified)
+
+   DUA                    Initial                APRAdb
+   ==========             =======                ======
+   HTTP GET            ->
+     Referer*
+                      <-  HTTP
+                            Set-Cookie+
+
+                          Request Initial     ->
+                                             <-  Accept (Ack)
+
+   The DUA contacts the Initial Gateway.  Each contact is logged.
+
+
+1.5.  Redirect Contact (Simplified)
+
+   DUA                    Redirect               APRAdb
+   ==========             ========               ======
+   HTTP GET            ->
+     Referer*
+                      <-  HTTP
+                            bridge relay(s)+
+                              Camouflage*
+                              Contact
+                              br_expiration
+                              br_identity
+                              br_secret
+
+                          Request Redirect    ->
+                                             <-  Accept (Ack)
+
+   The DUA delays for a specified number of seconds, then contacts the
+   Redirect Gateway.  When the contact is authenticated and authorized,
+   it returns a short list of ephemeral Bridge Relays.  Each contact is
+   logged.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 3]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+1.6.  Bridge Relay (Simplified)
+
+   DUA                    Relay(s)               APRAdb
+   ==========             ========               ======
+   HTTP GET            ->
+                      <-  HTTP
+
+                          Request Relay       ->
+                                             <-  Accept (Ack)
+
+   The DUA contacts these Bridge Relays.  Each contact is logged.
+
+                          Gateway(s)             APRAdb
+                          ==========             ======
+                                             <-  Request Status
+                                                   IP_state relay
+                          Accept (Ack)        ->
+                                             <-  Request Status
+                                                   IP_state redirect
+                          Accept (Ack)        ->
+
+   The APRAdb updates Gateway(s) with new contact information.
+
+
+2.  Transactions
+
+   APRP is a stream of [RFC4627] JSON text, represented as a virtual
+   JSON ordered array.  The virtual array "[" and "]" are omitted.
+
+   A message consists of a variable number of JSON arrays and objects.
+   Other JSON values are silently discarded.
+
+   Each message MUST commence with a transaction object.  When the
+   object is not valid, the entire message is silently discarded.
+
+   The message is concluded by the next transaction object, or by
+   closing the connection.  Asynchronous bidirectional transactions are
+   supported.
+
+   Multiple elements of an array or members of an object are separated
+   by a comma (value-separator).  The final element or member SHOULD NOT
+   be followed by a comma.
+
+   JSON is case-sensitive.
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 4]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   Design Considerations:
+      Although JSON has no inheritance feature, this specification uses
+      the convention that an object name string followed by a comma (or
+      closing brace or bracket) instead of a colon (name-separator)
+      indicates the position of a previously specified named Attribute.
+      Whenever such a named Attribute is listed within a JSON array, its
+      name string and colon are not sent.
+
+      JSON has no whitespace requirement.  Although definitions and
+      examples are indented with each member on a separate line, the
+      transmitted message will eliminate whitespace.  For diagnostic
+      convenience, each message SHOULD be followed by CRLF.
+
+      Each transaction is a stream and is never cached as an entire
+      object.  No element or member will exceed 65,535 bytes.
+
+
+2.1.  Transaction_Accept (Ack)
+
+   "Transaction_Accept": <number>
+
+
+   <number>         a copy of the received Transaction field causing
+                    this Transaction_Accept.
+
+   Transaction_Accept concludes any previous transaction in this
+   direction, but does not start a new transaction.
+
+   If every Attribute received in a Transaction_Request is recognizable
+   and all values are acceptable, then the implementation MUST transmit
+   Transaction_Accept.
+
+   Transaction_Accept is followed by Attributes that convey information
+   used to provide specific configuration information necessary to begin
+   delivery of services to the user.
+
+   On reception of Transaction_Accept, the <number> field is matched
+   with a pending Transaction_Request.  When the value is not valid, the
+   entire message is silently discarded.
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 5]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+2.2.  Transaction_Modify (Nak)
+
+   "Transaction_Modify": <number>
+
+
+   <number>         a copy of the received Transaction field causing
+                    this Transaction_Modify.
+
+   Transaction_Modify concludes any previous transaction in this
+   direction, but does not start a new transaction.
+
+   If every Attribute received in a Transaction_Request is recognizable
+   and some values are not acceptable, then the implementation MUST
+   transmit Transaction_Modify.
+
+   Attributes without value fields (boolean attributes) MUST use the
+   Transaction_Reject reply instead.
+
+   On reception of Transaction_Modify, the <number> field is matched
+   with a pending Transaction_Request.  When the value is not valid, the
+   entire message is silently discarded.
+
+
+2.3.  Transaction_Reject
+
+   "Transaction_Reject": {
+      "Received_Transaction": <number>,
+      "Received_Attribute": <string>
+   }
+
+
+   Received_Transaction <number>
+                    a copy of the received Transaction field causing
+                    this Transaction_Reject.
+
+   Received_Attribute <string>
+                    a copy of the received Attribute JSON object name
+                    causing this Transaction_Reject.
+
+   Transaction_Reject concludes any previous transaction in this
+   direction, but does not start a new transaction.
+
+   If any Attribute or Transaction_Request received is not recognizable
+   or is not acceptable for use (as configured by an administrator),
+   then the implementation MUST transmit Transaction_Reject.
+
+   When more than one Received_Attribute is rejected in the same
+   transaction, another Transaction_Reject is sent for each such
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 6]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   Attribute.
+
+   On reception of Transaction_Reject, the Rejected-Transaction is
+   matched with a pending Transaction_Request.  When the value is not
+   valid, the entire message is silently discarded.
+
+
+2.4.  Transaction_Request
+
+   "Transaction_Request": {
+      "Transaction": <number>,
+      "Request": <string>
+   }
+
+
+   Transaction <number>
+                    aids in matching requests and replies.  Initially
+                    zero (0).  Incremented by one (1) for each new
+                    transaction.  Wraps from 2**23-1 to zero (0).
+
+                    Nota Bene: avoid complications of unsigned number
+                    representations; comparisons MUST use equality
+                    tests.
+
+   Request <string>
+
+      Idle          When a transaction is not immediately followed by
+                    another transaction, this SHOULD be used as a
+                    temporary transaction termination instead of closing
+                    the connection.  In this case, the Transaction value
+                    is not incremented; any response refers to the
+                    original Transaction_Request.
+
+      Initial       Logs each Initial Contact.
+
+      Redirect      Logs each Redirect Contact.
+
+      Relay         Logs each Bridge Relay Contact.
+
+      Status        Updates the Address Pool.
+
+      User          Registers Discovery Provisioning.
+
+   Transaction_Request concludes any previous transaction in this
+   direction.
+
+   When the connection is not closed, another Transaction_Request will
+   be sent with a new Transaction value.
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 7]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   Transaction_Reject of Transaction_Request indicates the Request field
+   is not recognizable or is not acceptable for use (as configured by an
+   administrator), and is also a special indicator of any internal
+   operational failure.  The occurance SHOULD be reported and logged.
+
+
+3.  Common Attributes
+
+3.1.  AP_state Attribute
+
+   "AP_state": <string>
+
+
+   <string>
+
+      idle          The IP address range enters the holding state.
+                    Existing contacts are permitted to continue.  New
+                    contacts are silently discarded.
+
+      initial       Used for Initial Contacts.
+
+      redirect      Used for Redirect Contacts.
+
+      relay         Used for Bridge Relays.
+
+      unusable      The IP address range enters the poisoned state.
+                    Existing contacts are immediately terminated.  New
+                    contacts from listed IP address blocks are silently
+                    discarded.
+
+   This Attribute is immediately followed by a JSON array of IP_block
+   Attributes.
+
+
+3.2.  IP_address Attribute
+
+   "IP_address": <string>
+
+
+   <string>         4 to 39 bytes: string representation of a unicast IP
+                    address.  This MUST NOT be a long decimal, octal, or
+                    hexadecimal number.  Each IP version has its
+                    distinguished format.  (For example, see [RFC5952].)
+
+   This Attribute is frequently transmitted as the second member of a
+   JSON object.
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 8]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+3.3.  IP_block Attribute
+
+   "IP_block": {
+      "IP_bits": <number>,
+      "IP_address": <string>
+   }
+
+
+   IP_bits <number> 0 to 32 (or 128).  The power of two indicating the
+                    size of the block.  (The number of least significant
+                    zero bits in the interface netmask.)  That is, 0 is
+                    1 address, 1 is 2 addresses, etc.
+
+   IP_address <string>
+                    Same as IP_address Attribute.
+
+   This Attribute is always transmitted in a variable length JSON array.
+
+
+3.4.  IP_blocks Attribute
+
+   "IP_blocks": [
+      "IP_block",
+      ...
+   ]
+
+   A JSON array of one (or more) IP_block Attribute(s).  The semantics
+   are dependent upon the context.
+
+
+3.5.  IP_subheader Attribute
+
+   "IP_subheader": <number>
+
+
+   <number>         0 to 255.
+
+   The next header (or transport protocol) following the IP header.
+   Usually, this value is 6 (TCP).
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page 9]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+3.6.  Discriminator Attribute
+
+   "Discriminator": <number>
+
+
+   <number>         0 to 2**16 - 1 for common IP_subheader ports, 0 to
+                    2**32 - 1 otherwise.
+
+   Usually, this value is well-known for each URI scheme [RFC3986].
+
+
+3.7.  Encapsulation Attribute
+
+   "Encapsulation": {
+      "IP_subheader": <number>,
+      "Discriminator": <number>
+   }
+
+
+   IP_subheader <number>
+                    Same as IP_subheader Attribute.
+
+   Discriminator <number>
+                    Same as Discriminator Attribute.  Optional,
+                    dependent upon the IP_subheader.
+
+   This Attribute is always transmitted in a variable length JSON array.
+
+
+3.8.  Encapsulations Attribute
+
+   "Encapsulations": [
+      "Encapsulation",
+      ...
+   ]
+
+   A JSON array of one (or more) Encapsulation Attribute(s).  The
+   semantics are dependent upon the context.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 10]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+3.9.  Contact Attribute
+
+   "Contact": {
+      "IP_address": <string>,
+      "Encapsulations"
+   }
+
+
+   IP_address <string>
+                    Same as IP_address Attribute.
+
+   Encapsulations   Same as Encapsulations Attribute (array).
+
+
+3.10.  Contact_pairing Attribute
+
+   "Contact_pairing": [
+      "Contact",
+      "Contact"
+   ]
+
+   The first Contact Attribute is the remote (client) system.  The
+   second Contact Attribute is the local (server) system; sent to
+   distinguish multiply "homed" systems or service on multiple ports.
+
+
+3.11.  Contact_logging Attribute
+
+   "Contact_logging": {
+      "count": <number>,
+      "delay": <number>
+   }
+
+
+   count <number>   Contacts since last logging entry for the same
+                    Contact_pairing Attribute.  Normally one (1).
+
+   delay <number>   Seconds since last logging entry for the same
+                    Contact_pairing Attribute.  When the pair has never
+                    been recorded, MUST be zero (0).
+
+   This Attribute immediately follows the Contact_pairing Attribute, and
+   assists in consolidating repeated logging messages.
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 11]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+4.  Scheme-specific Attributes
+
+4.1.  Camouflage Attribute
+
+      "Camouflage": {
+         "method": <string>,
+         "scheme": <string>
+      }
+
+
+      method <string>  Implementation dependent.
+
+      scheme <string>  A well-known URI scheme [RFC3986].  Typically,
+                       "http".
+
+      This Attribute is optional.  When not present, no camouflage is
+      available.
+
+
+   4.2.  HTTP_Cookie Attribute
+
+      "HTTP_Cookie": <string>
+
+
+      <string>         0 to 4,096 bytes.  [RFC6265]
+
+      When sent from the APRAdb to a Gateway, this includes embedded
+      formatting that is replaced at the time of subsequent
+      transmission:
+
+      %V#u
+         unsigned decimal
+
+      %V#U
+         [RFC4648] base64url
+
+      %V#x
+         lower case hexadecimal
+
+      %V#X
+         upper case hexadecimal
+
+      where # is a REQUIRED decimal number indicating the total output
+      characters in this field.  When a leading zero (0) is present,
+      small values have leading zero(es) in the most significant digits.
+
+      This Attribute is always transmitted in a variable length JSON
+      array (an empty array MUST NOT be omitted).
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 12]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   4.3.  HTTP_Referer Attribute
+
+      "HTTP_Referer": <string>
+
+
+      <string>         0 to 255 bytes: also known as IRI, URI, or URL.
+
+                       Note [RFC2616] specifies: "The HTTP protocol does
+                       not place any a priori limit on the length of a
+                       URI. Servers MUST be able to handle the URI of
+                       any resource they serve, and SHOULD be able to
+                       handle URIs of unbounded length if they provide
+                       GET-based forms that could generate such URIs."
+
+                       This specification deliberately limits the
+                       length.  On reception, any HTTP Referer [sic]
+                       header field exceeding this length MUST be
+                       silently discarded without sending via APRP.  In
+                       practice, any expected URL shortener is likely to
+                       be considerably shorter.
+
+      This Attribute is always transmitted in a variable length JSON
+      array (an empty array MUST NOT be omitted).
+
+
+   5.  Security Attributes
+
+      This design is security protocol independent.  The chosen protocol
+      MUST provide confidentiality, mutual authentication, and Perfect
+      Forward Secrecy.
+
+      These attributes are now specified in companion transport
+      documents.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 13]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   5.1.  Security_logging Attribute
+
+      "Security_logging": {
+      }
+
+      A JSON object containing attributes for diagnostic purposes.  See
+      companion transport documents.
+
+      This Attribute is used for debugging connections, and MUST NOT be
+      transmitted during normal operations, as it provides a target for
+      an adversary.
+
+
+   6.  User Provisioning Attributes
+
+      These are externally visible Attributes, or lists of such
+      Attributes.
+
+
+   6.1.  BR_Access Attribute
+
+      "BR_Access": {
+         "br_expiration": <number>,
+         "br_identity": <string>,
+         "br_secret": <string>
+      }
+
+
+      br_expiration <number>
+                       Time remaining until the ephemeral identity and
+                       secret expire (in seconds).
+
+      br_identity <string>
+                       64 to 128 bytes: 48 to 96 random bytes, base64url
+                       encoded before transmission.  Upon receipt, this
+                       value is used in calculations as transmitted.
+
+      br_secret <string>
+                       43 to 86 bytes: 16 to 64 random bytes, base64url
+                       encoded before transmission and decoded before
+                       use in calculations.
+
+      (See example in [ACSCF] section "Bridge Relay List".)
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 14]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   6.2.  BR_Access_List Attribute
+
+      "BR_Access_List": [
+         "BR_Access",
+         ...
+      ]
+
+      A JSON array of one (or more) BR_Access Attribute(s) indicating
+      the current access parameters.
+
+
+   6.3.  BR_Contact_List Attribute
+
+      "BR_Contact_List": [
+         {
+            "Contact",
+            "BR_Access_List"
+         },
+         ...
+      ]
+
+      A JSON array of one (or more) JSON object(s) containing:
+
+       * a Contact Attribute indicating the Bridge Relay.
+
+       * a BR_Access_List Attribute (array) indicating the current
+         access parameters.
+
+
+   6.4.  BR_Transport_List Attribute
+
+      "BR_Transport_List": [
+         {
+            "Camouflage",
+            "Encapsulations",
+            "BR_Access_List"
+         },
+         ...
+      ]
+
+      A JSON array of one (or more) JSON object(s) containing:
+
+       * an optional Camouflage Attribute.
+
+       * an Encapsulations Attribute (array).
+
+       * a BR_Access_List Attribute (array) indicating the current
+         access parameters.
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 15]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   6.5.  Discovery_Access Attribute
+
+      "Discovery_Access": {
+         "wait": <number>,
+         "window": <number>,
+         "passphrase": <string>
+      }
+
+
+      wait <number>    4 to 300 (seconds).  Redirect wait; the minimum
+                       delay between Initial Contact and Redirect
+                       Contact.  The "wait" MUST be less than the
+                       "window" value.  See [ACSCF] section "Contact
+                       Timing".
+
+      window <number>  "wait" + 4 to 60 (seconds).  Redirect window; the
+                       maximum delay between Initial Contact and
+                       Redirect Contact.  The difference between the
+                       "wait" and "window" values MUST be greater than
+                       or equal to 4, SHOULD be greater than 12, and
+                       SHOULD NOT be greater than 60.  See [ACSCF]
+                       section "Contact Timing".
+
+      passphrase <string>
+                       18 to 29 bytes.  See [ACSCF] section "Contact
+                       Passphrase".
+
+      (See additional details in [ACSCF] section "Discovery
+      Provisioning".)
+
+
+   6.6.  Discovery_Access_List Attribute
+
+      "Discovery_Access_List": [
+        {
+           "Discovery_Access",
+           "BR_Contact_List"
+        },
+        ...
+      ]
+
+      A JSON array of one (or more) JSON object(s) containing:
+
+       * a Discovery_Access Attribute indicating the current contact
+         parameters.
+
+       * a BR_Contact_List Attribute indicating the Bridge Relay(s).
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 16]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   6.7.  Discovery_Interval Attribute
+
+      "Discovery_Interval": <string>
+
+
+      <string>         3 to 33 bytes: [ISO 8601:2004] time interval
+                       format as modified by [RFC3339].  Default: 86,400
+                       seconds as "P1D" or "P24H".
+
+                       A standard date and time indicates the minimum
+                       time before the Gateway starts listening for an
+                       Initial Contact.  When not present, indicates
+                       immediate effect.
+
+                       The duration range is 360 to 86,400 seconds.
+                       This indicates the maximum time before the
+                       Gateway stops listening for an Initial Contact.
+                       The minimum is the Discovery_Access maximum.
+
+      The actual elapsed time will be limited by the Discovery_Access
+      "window".
+
+
+   6.8.  Discovery_Provisioning Attribute
+
+      "Discovery_Provisioning": {
+         "when": <string>,
+         "initial": <string>,
+         "redirect": <string>,
+         "wait": <number>,
+         "window": <number>,
+         "passphrase": <string>
+      }
+
+
+      when <string>    Optional.  See Discovery_Interval Attribute.
+
+      initial <string> Same as IP_address Attribute.  In the
+                       alternative, same as HTTP_Referer Attribute.
+
+      redirect <string>
+                       Same as IP_address Attribute.  In the
+                       alternative, same as HTTP_Referer Attribute.
+
+      wait <number>    See Discovery_Access Attribute.
+
+      window <number>  See Discovery_Access Attribute.
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 17]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      passphrase <string>
+                       See Discovery_Access Attribute.
+
+      Although the named elements correspond to the similar
+      Discovery_Access and Discovery_Interval Attributes, nested
+      attributes are not used to avoid human confusion.
+
+      (See additional details in [ACSCF] section "Discovery
+      Provisioning".)
+
+
+   7.  Gateway Provisioning Details
+
+   7.1.  Address Pool Creation
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "AP_state": "idle"
+      },
+      {
+         "IP_blocks"
+      }
+
+      As a Gateway completes the SSH connection to each APRAdb master
+      and backup, it sends a Transaction_Request with the Request field
+      set to "Status", followed by:
+
+       * an AP_state Attribute set to "idle".
+
+       * a JSON array of only one IP_block Attribute indicates the
+         target IP address or range.
+
+      When the IP address ranges are not contiguous, the AP_state
+      Attribute sequence is repeated in another transaction for each
+      IP_block Attribute.
+
+      Upon reception, APRP returns a transaction result:
+
+      Accept (Ack)
+         The IP_block was added to the APRAdb as "ready", or its APRAdb
+         state was changed from "drain" to "ready".
+
+         Changes to the status of the Gateway will be indicated by
+         subsequent maintenance transactions.  This refreshes a Gateway
+         after restart.
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 18]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      Modify (Nak)
+         The current APRAdb state is "block".
+
+      No additional Attributes are sent.
+
+      When a Gateway with more than one existing SSH connection switches
+      to another connection, these messages SHOULD NOT be sent again.
+
+      [...]
+
+
+   7.2.  Address Pool Deletion
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "AP_state": "unusable"
+      },
+      {
+         "IP_blocks"
+      }
+
+      When Gateway control of designated Address Pool IP addresses is
+      revoked (or upon loss of contact with an IP sub-net router via its
+      tunnel), it sends a Transaction_Request with the Request field set
+      to "Status", followed by:
+
+       * an AP_state Attribute set to "unusable".
+
+       * a JSON array of only one IP_block Attribute indicates the
+         target IP address or range.
+
+      When the IP address ranges are not contiguous, the AP_state
+      Attribute sequence is repeated in another transaction for each
+      IP_block Attribute.
+
+      Upon reception, APRP returns a transaction result:
+
+      Accept (Ack)
+         The APRAdb state was changed from "ready" to "drain".
+
+         Changes to the status of the Gateway will be indicated by
+         subsequent maintenance transactions.
+
+      Modify (Nak)
+         The current APRAdb state was "block", or the IP_block was
+         missing from the APRAdb.
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 19]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      No additional Attributes are sent.
+
+      Whenever both APRAdb master and backup SSH sessions are closed,
+      the Gateway will cease responding to contacts until SSH
+      communication is re-established.
+
+      In either case, the APRAdb indicates the IP_block will "drain"
+      until a later AP_state "idle" (see section "Address Pool Creation"
+      above) restores the IP_block to "ready" state.
+
+      [...]
+
+
+   7.3.  Address Pool Maintenance
+
+      When the APRAdb updates the status of IP addresses on a Gateway,
+      it sends a Transaction_Request with the Request field set to
+      "Status", followed by:
+
+       * an AP_state Attribute.
+
+       * a JSON array of one (or more) IP_block Attribute(s).  The first
+         specified IP_block indicates the target IP address or range.
+         Any additional members of the array specify IP address ranges
+         that are allowed access to the first specified IP_block.
+         Blocked contacts are silently discarded.  When no additional
+         members are listed, access is allowed for all IP sources that
+         are not otherwise specified as unusable.
+
+      The AP_state indicates any additional Attributes that immediately
+      follow the IP_block array.
+
+      When the IP address ranges are not contiguous or there are
+      multiple status updates for the same Gateway combined in the same
+      transaction, the AP_state Attribute sequence is repeated.
+
+      Although described (below) alphabetically, updates MUST be sent in
+      a specific order to ensure that Gateways are properly prepared for
+      concurrent contacts: unusable, idle, relay, redirect, initial.
+
+      Upon reception, APRP returns a transaction result:
+
+      Accept (Ack)
+         When the Gateway detects no conflicts with existing
+         information, the specified IP_block(s) are updated.
+
+      Modify (Nak)
+         Otherwise, the current status of each specified IP_block is
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 20]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+         indicated (updates are not applied).
+
+      [...]
+
+
+   7.3.1.  Address Pool Idle
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "AP_state": "idle"
+      },
+      {
+         "IP_blocks"
+      }
+
+      Only one IP_block is specified per AP_state.
+
+      No additional Attributes.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 21]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   7.3.2.  Address Pool Initial Contacts
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "AP_state": "initial"
+      },
+      {
+         "IP_blocks"
+      },
+      {
+         "Encapsulations"
+      },
+      [
+         "Contact",
+         ...
+      ],
+      {
+         "HTTP_Cookies": [
+            "HTTP_Cookie",
+            ...
+         ],
+      },
+      {
+         "HTTP_Referers": [
+            "HTTP_Referer",
+            ...
+         ]
+      }
+
+      The first specified IP_block MUST indicate a single IP_address;
+      the IP_bits field is zero (0).
+
+      Immediately following the IP_block array:
+
+       * an Encapsulations Attribute (array).
+
+       * a JSON array of one (or more) Contact Attribute(s) indicating
+         the matching Redirect Contacts.
+
+       * a JSON array of one (or more) HTTP_Cookie Attribute(s)
+         indicating the cookie-name part(s) to be used.
+
+       * a JSON array of zero (or more) HTTP_Referer Attribute(s)
+         indicating any expected URL shortener specific to this
+         IP_address.  When the HTTP_Referers array is empty, this object
+         SHOULD NOT be transmitted.
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 22]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      The IP_block(s) MAY serve multiple ports concurrently; the
+      AP_state Attribute sequence is repeated.
+
+
+   7.3.3.  Address Pool Redirect Contacts
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "AP_state": "redirect"
+      },
+      {
+         "IP_blocks"
+      },
+      {
+         "Encapsulations"
+      },
+      [
+         "Contact",
+         ...
+      ],
+      {
+         "HTTP_Cookies": [
+            "HTTP_Cookie",
+            ...
+         ],
+      },
+      {
+         "HTTP_Referers": [
+            "HTTP_Referer",
+            ...
+         ]
+      },
+      "Discovery_Access_List"
+
+      The first specified IP_block MUST indicate a single IP_address;
+      the IP_bits field is zero (0).
+
+      Immediately following the IP_block array:
+
+       * an Encapsulations Attribute (array).
+
+       * a JSON array of one (or more) Contact Attribute(s) indicating
+         the matching Initial Contacts.
+
+       * a JSON array of one (or more) HTTP_Cookie Attribute(s)
+         indicating the cookie-name part(s) to be used.
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 23]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+       * a JSON array of zero (or more) HTTP_Referer Attribute(s)
+         indicating any expected URL shortener specific to this
+         IP_address.  When the HTTP_Referers array is empty, this object
+         SHOULD NOT be transmitted.
+
+       * a Discovery_Access_List Attribute indicating the designated
+         Bridge Relay(s) and current access parameters.
+
+      The IP_block(s) MAY serve multiple ports concurrently; the
+      AP_state Attribute sequence is repeated.
+
+
+   7.3.4.  Address Pool Relays
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "AP_state": "relay"
+      },
+      {
+         "IP_blocks"
+      },
+      "BR_Transport_List"
+
+      The first specified IP_block MUST indicate a single IP_address;
+      the IP_bits field is zero (0).
+
+      Immediately following the IP_block array, a BR_Transport_List
+      Attribute (array) indicating the contact and current access
+      parameters.
+
+      The IP_block(s) MAY serve multiple ports concurrently.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 24]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   7.3.5.  Address Pool Unusable
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "AP_state": "unusable"
+      },
+      {
+         "IP_blocks"
+      }
+
+      The first specified IP_block indicates the target IP address or
+      range.  Any additional members of the array specify IP address
+      ranges that are denied access to the first specified IP_block.
+      When no additional members are listed, access is denied for all IP
+      sources.  (Note this is the inverse of other states.)
+
+      No additional Attributes.
+
+      This AP_state supercedes all others.  Conflicting information is
+      removed.
+
+      The IP_block(s) MAY allow service for other IP address ranges.
+
+
+   8.  Discovery Provisioning Details
+
+      DUA                    Gateway                APRAdb
+      ==========             =======                ======
+      (unspecified)       ->
+                             Request User        ->
+                                                <-  Accept (Ack)
+                         <-  (unspecified)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 25]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   8.1.  Discovery Request
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "Contact_pairing"
+      },
+      {
+         "Contact_logging"
+      },
+      {
+         "Discovery_Interval"
+      },
+      {
+         "AP_state": "unusable"
+      },
+      {
+         "IP_blocks"
+      }
+
+      As each Discovery Provisioning process completes the SSH
+      connection to its APRAdb, it sends a Transaction_Request with the
+      Request field set to "User", followed by:
+
+       * a Contact_pairing Attribute (array).
+
+       * a Contact_logging Attribute (object).
+
+      When the Contact_logging Attribute "count" member equals one (1),
+      followed by:
+
+       * a Discovery_Interval Attribute.
+
+       * zero (or more) JSON object(s) containing:
+
+          * an AP_state Attribute set to "unusable".
+
+          * a JSON array of only one IP_block Attribute indicates the
+            unusable IP address or range.
+
+         When the IP address ranges are not contiguous, the AP_state
+         Attribute sequence is repeated.
+
+      The distribution mechanism is expected to involve proof-of-life
+      and proof-of-work.  Distributing this contact information to users
+      is beyond the scope of this specification.
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 26]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      The unusable IP address ranges provide feedback about difficulties
+      with prior contacts, together with other contact history learned
+      via logging (below).  This user report SHOULD NOT be
+      determinative, as an adversary with sufficient resources and time
+      could issue repeated requests poisoning the IP address space.
+
+      Upon reception, APRP returns a transaction result:
+
+      Accept (Ack)
+         When the APRAdb has no current information about the remote
+         (client) IP_address, the APRAdb uses the Contact Attributes to
+         select appropriate initial, redirect, and relays, and issues
+         initial, redirect, and relay Status updates as needed.
+
+      Modify (Nak)
+         Otherwise, [...]
+
+   8.2.  Discovery Accept
+
+      {
+         "Transaction_Accept"
+      },
+      "Discovery_Provisioning"
+
+      When the Discovery Provisioning process is successful, it receives
+      a Transaction_Accept, followed by:
+
+       * a Discovery_Provisioning Attribute (object).
+
+
+   9.  Contact Details
+
+      HTTP header fields are in order of document presentation, but MAY
+      be transmitted in any order to emulate specific clients and
+      servers.  Additional fields MAY be present.  Many standard fields
+      are omitted for convenience.
+
+      This protocol depends upon successful end-to-end transmission of
+      certain fields.  HTTP header fields utilized by this protocol MUST
+      be passed from the DUA to the [RFC2616] origin server (O) and vice
+      versa.
+
+      Every HTTP request MUST specify [RFC2616] Cache-Control "max-age"
+      of zero (0), forcing any cache(s) to revalidate all responses.
+
+      The Gateway SHOULD return both [RFC2616] Date and Expires header
+      fields.  If present, the Expires date MUST be equal to the Date
+      header value.  This indicates that the response has "already
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 27]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      expired."
+
+      The Gateway SHOULD return the [RFC2616] Pragma: no-cache header
+      field.
+
+      The Gateway SHOULD return the [RFC2616] Cache-Control header
+      field.
+
+
+   9.1.  Initial Contact
+
+      DUA                    Initial                APRAdb
+      ==========             =======                ======
+      HTTP GET            ->
+        Referer*
+                         <-  HTTP
+                               Set-Cookie+
+
+                             Request Initial     ->
+                                                <-  Accept (Ack)
+
+      When the Redirect Contact will be handled by this Gateway and the
+      current session was initiated during the wait delay of a previous
+      session that has not yet made the Redirect Contact, the contact is
+      ignored (returns a default response).  The attempt SHOULD be
+      counted or logged by the Initial Gateway.
+
+      In any case, there is no difference in the Gateway response
+      transmitted to the DUA.
+
+
+   9.1.1.  Initial Referer
+
+      If a URL shortener was used, the HTTP Referer [sic] header field
+      value SHOULD be set to the original URL.  Otherwise, the Referer
+      is not sent.
+
+      When the HTTP Referer header field is received, but does not match
+      any expected URL shortener, the contact is ignored (returns a
+      default response).  The attempt SHOULD be counted or logged by the
+      Initial Gateway.
+
+      In any case, there is no difference in the Gateway response
+      transmitted to the DUA.
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 28]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   9.1.2.  Initial Set-Cookie(s)
+
+      The Gateway MUST transmit one or more [RFC6265] Set-Cookie
+      string(s).  The value(s) is/are randomly generated for each
+      connection, and encoded according the variable format field
+      indicated by the APRAdb.
+
+      The cookie-name(s) and cookie-value(s) are saved by the DUA for
+      the next contact, but MUST NOT be returned with any HTTP or HTTPS
+      request.  Any other attributes are discarded.  If more than one
+      Set-Cookie is present, the cookie-names are sorted alphabetically
+      and the cookie-values are concatenated (most significant to least
+      significant as transmitted) before further use in calculations.
+
+
+   9.2.  Initial Logging
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "Contact_pairing"
+      },
+      {
+         "Contact_logging"
+      },
+      {
+         "HTTP_Cookies": [
+            "HTTP_Cookie",
+            ...
+         ],
+      },
+      {
+         "HTTP_Referers": [
+            "HTTP_Referer",
+            ...
+         ]
+      }
+
+      The Gateway sends a Transaction_Request to its APRAdb, with the
+      Request field set to "Initial", followed by:
+
+       * a Contact_pairing Attribute (array).
+
+       * a Contact_logging Attribute (object).
+
+      When the Contact_logging Attribute "count" member equals one (1),
+      followed by:
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 29]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+       * a JSON array of one (or more) HTTP_Cookie Attribute(s)
+         indicating the token (cookie) sent.
+
+       * a JSON array of zero or one HTTP_Referer Attribute indicating
+         the HTTP Referer header field was present.  When the
+         HTTP_Referers array is empty, this object SHOULD NOT be
+         transmitted.
+
+      This transaction is handled in parallel with the Initial Contact
+      response.
+
+
+   9.3.  Initial-Redirect Update
+
+                             Redirect               APRAdb
+                             ========               ======
+                                                <-  Request Initial
+                             Accept (Ack)        ->
+
+      When the Redirect Contact will be handled by another Gateway, the
+      APRAdb sends a Transaction_Request to the Redirect Gateway with
+      the Request field set to "Initial", followed by the Initial
+      Logging message (above).
+
+      On reception, APRP returns a transaction result:
+
+      Accept (Ack)
+         The session is authorized.  The Redirect Gateway retains Cookie
+         values for the next contact.
+
+      Modify (Nak)
+         The current session was initiated during the wait delay of a
+         previous session that has not yet made the Redirect Contact.
+         The contact is ignored (returns a default response).  The
+         attempt SHOULD be counted or logged by the APRAdb.
+
+      This transaction is subsequent to the Initial Contact response.
+      The "wait" and "window" delays MUST permit ample time for the
+      update.
+
+      Design Considerations:
+         When both Initial Contact and Redirect Contact are assigned to
+         the same Gateway, any ordered pairing is possible.  In this
+         case, there MAY be fewer Initial Contact IP address assignments
+         than Redirect Contact IP address assignments.  A smaller number
+         of users need be assigned the same pair, and the verification
+         search will be shorter.
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 30]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+         When assigned to different Gateways, this design requires a
+         direct relationship between contacts.  As there are fewer
+         possible pairs, a larger number of users will be assigned the
+         same pair, and the verification search will be longer.
+
+         To eliminate duplicate update messages to different Gateways,
+         there MUST NOT be fewer Initial Contact IP address assignments
+         than Redirect Contact IP address assignments.  There MAY be
+         additional Initial Contact IP address assignments.
+
+
+   9.4.  Redirect Contact
+
+      DUA                    Redirect               APRAdb
+      ==========             ========               ======
+      HTTP GET            ->
+        Referer*
+                         <-  HTTP
+                               Set-Cookie+
+                               bridge relay(s)+
+                                 Camouflage*
+                                 Contact
+                                 br_expiration
+                                 br_identity
+                                 br_secret
+
+                             Request Redirect    ->
+                                                <-  Accept (Ack)
+
+      The Redirect session is delayed for a random amount of time
+      between the "wait" and "window" parameters.  Although the
+      randomization range is specified in units of seconds, the actual
+      randomly-chosen value SHOULD NOT be in units of whole seconds, but
+      rather in units of the highest available timer resolution.
+
+      When the handshake is successful, the Gateway selects Bridge
+      Relays and chooses associated unallocated BR_Access parameters
+      with the shortest remaining expiration.  It sends these to the
+      DUA.
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 31]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   9.4.1.  Redirect Referer
+
+      If a URL shortener was used, the HTTP Referer [sic] header field
+      value SHOULD be set to the original URL.  Otherwise, the Referer
+      is not sent.
+
+      When the HTTP Referer header field is received, but does not match
+      any expected URL shortener, the contact is ignored (returns a
+      default response).  The attempt SHOULD be counted or logged by the
+      Redirect Gateway.
+
+      In any case, there is no difference in the Gateway response
+      transmitted to the DUA.
+
+
+   9.5.  Redirect Logging
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "Contact_pairing"
+      },
+      {
+         "Contact_logging"
+      },
+      {
+         "HTTP_Cookies": [
+            "HTTP_Cookie",
+            ...
+         ],
+      },
+      {
+         "HTTP_Referers": [
+            "HTTP_Referer",
+            ...
+         ]
+      },
+      {
+         "Discovery_Access"
+      },
+      {
+         "Security_logging"
+      }
+
+      The Gateway sends a Transaction_Request to its APRAdb, with the
+      Request field set to "Redirect", followed by:
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 32]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+       * a Contact_pairing Attribute (array).
+
+       * a Contact_logging Attribute (object).
+
+      When the Contact_logging Attribute "count" member equals one (1),
+      followed by:
+
+       * a JSON array of one (or more) HTTP_Cookie Attribute(s)
+         indicating the token (cookie) sent.
+
+       * a JSON array of zero, one, or two HTTP_Referer Attribute(s)
+         seen.  When the HTTP_Referers array is empty, this object
+         SHOULD NOT be transmitted.
+
+       * a Discovery_Access Attribute matching the prior provisioning.
+
+       * a Security_logging Attribute for diagnostic purposes (omitted
+         during normal operations).
+
+      Upon reception, the APRAdb SHOULD generate replacement BR_Access
+      parameters for future contacts, and update any associated Bridge
+      Relay(s) prior to this Redirect Gateway.  This permits multiple
+      users to share the same Discovery Provisioning without sharing the
+      same identities and secrets.
+
+      This transaction is handled in parallel with the Redirect Contact
+      response.
+
+
+   9.6.  Bridge Relay(s)
+
+      DUA                    Relay(s)               APRAdb
+      ==========             ========               ======
+      HTTP GET            ->
+                         <-  HTTP
+
+                             Request Relay       ->
+                                                <-  Accept (Ack)
+
+      [...]
+
+      When the former session identifier is not recognized, the Gateway
+      will continue the handshake with a new session identifier, but
+      ultimately reject this session.
+
+      When the session is authorized, the Gateway will continue the
+      handshake with a new session identifier.
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 33]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      [...]
+
+
+   9.7.  Bridge Relay Logging
+
+      {
+         "Transaction_Request"
+      },
+      {
+         "Contact_pairing"
+      },
+      {
+         "Contact_logging"
+      },
+      {
+         "BR_Access"
+      },
+      {
+         "Security_logging"
+      }
+
+      The Gateway sends a Transaction_Request to its APRAdb, with the
+      Request field set to "Relay", followed by:
+
+       * a Contact_pairing Attribute (array).
+
+       * a Contact_logging Attribute (object).
+
+      When the Contact_logging Attribute "count" member equals one (1),
+      followed by:
+
+       * a BR_Access Attribute matching the prior provisioning.
+
+       * a Security_logging Attribute for diagnostic purposes (omitted
+         during normal operations).
+
+      This transaction is handled in parallel with the Bridge Relay
+      response.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 34]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   10.  Open issues
+
+      This document is preliminary, and "[...]" indicates areas to be
+      updated based on implementation experience.
+
+      In most cases, these issues involve error recovery.  Originally,
+      the specification anticipated a very small number of implementers,
+      and unexpected responses would be rare.  Problems could be handled
+      manually, and systems restarted at any time.
+
+      As the number of implementers and operators has expanded, these
+      "[...]" indicate potential incompatibility that might need
+      explication.
+
+      Address Pool Creation
+
+         Problem: the backup might connect before the master, and these
+         messages will start with the backup.  But the master is
+         preferred, and subsequent requests could be sent to the master.
+         Any outstanding responses MUST be matched on the now idle
+         backup connection.
+
+         Originally, this was not an issue, as the entire creation
+         sequence was idempotent in a single request and response.  But
+         that was precluded by the implemented database.
+
+         Solution: each message is already designed to be idempotent.
+         Responses MUST NOT be sent until both master and backup have
+         confirmed the database commit.
+
+         Problem: the SQL doesn't check across multiple Gateways.
+         Misconfiguration or reconfiguration could assign the same block
+         to another Gateway.
+
+         Solution: This is not yet handled.
+
+      Address Pool Deletion
+
+         This feature is new, and the [...] was added as a matter of
+         course.
+
+         The latter paragraphs have not been implemented.
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 35]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+      Address Pool Maintenance
+
+         Handling problems and/or failures is not specified.
+
+      Discovery Request
+
+         Handling problems and/or failures is not specified.
+
+      Redirect Contact
+
+         Selecting relays is not well specified.
+
+         Interactions with stegotorus are unresolved.
+
+      Bridge Relay(s)
+
+         A considerable amount of detail is missing.  Although the
+         protocol itself is well defined, the actual processing
+         decisions for relaying are unknown, especially with regard to
+         stegotorus.
+
+         Chaffing and winnowing are not specified.
+
+
+   Acknowledgments
+
+      George Kadianakis suggested that APRP messages between the APRAdb
+      and Gateways be handled in parallel with traffic between the
+      Gateways and DUA to inhibit traffic analysis of differences in
+      response timing.
+
+      Jeroen Massar raised additional concerns about DoS and DDos
+      attacks.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 36]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   Design Considerations
+
+      The first specification of this protocol consisted of standard
+      type-length-value binary construction.  The transaction requests
+      and responses are simple remote procedure calls, and the semantics
+      were based on widespread Internet practices.
+
+      The second specification reconstructed the messages utilizing the
+      full-fledged [RFC4627] JSON syntax.  The given rationale is not
+      all applications would be able to handle binary; thus a textual
+      serialization would be more universal.  This was based on the
+      premise that extant JSON parsers correctly handled the JSON
+      syntax.  Investigation showed this to be false.
+
+      The third specification restructured the messages, flattening the
+      protocol into an ordered stream more like the original
+      specification.
+
+         The stream has no JSON (array or object) container.  Message
+         syntax can be checked by adding the (virtual array) implied "["
+         and "]".
+
+         Transaction elements consist of an object with only a single
+         member, where the label unambiguously identifies the element.
+
+         Optional object members were eliminated by sending them only in
+         the outer (virtual array) stream.
+
+         Arrays of different elements were eliminated by sending them
+         only in the outer (virtual array) stream.
+
+      These semantics retain the underlying JSON LL(1) or LR(1) grammar,
+      while hopefully compatible with general JSON libraries.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 37]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   Operational Considerations
+
+      [...]
+
+
+   Security Considerations
+
+      This protocol was based on currently available tools, by
+      experienced network protocol designers with an interest in
+      cryptography, rather than by cryptographers with an interest in
+      network protocols.  This specification is intended to be readily
+      implementable without requiring an extensive background in
+      cryptology.
+
+      Logging messages provide feedback about contact history for each
+      IP address.  This aids in automatically determining blocked IP
+      addresses.
+
+      Under normal circumstances, logging messages are limited by the
+      "wait" and "window" delays.  During a Denial of Service (DoS)
+      attack, subsequent logging messages will be held for at least one
+      (1) second, and the count and hold time delay is provided instead.
+      During a Distributed Denial of Service (DDoS) attack, these
+      messages are only reduced by the number of attacking systems.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 38]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   Normative References
+
+
+      [ISO 8601:2004]
+                  "Data elements and interchange formats -- Information
+                  interchange -- Representation of dates and times", ISO
+                  8601:2004, International Organization for
+                  Standardization, December 2004.
+
+      [RFC2119]   Bradner, S., "Key words for use in RFCs to Indicate
+                  Requirement Levels", BCP 14, March 1997.
+
+      [RFC2289]   Haller, N., Metz, C., Nesser, P., and M. Straw, "A
+                  One-Time Password System", STD 61, RFC 2289, February
+                  1998.
+
+      [RFC2616]   Fielding, R., Gettys, J., Mogul, J., Frystyk, H.,
+                  Masinter, L., Leach, P., and T. Berners-Lee,
+                  "Hypertext Transfer Protocol -- HTTP/1.1", RFC 2616,
+                  June 1999.
+
+      [RFC3339]   Klyne G.  and C. Newman, "Date and Time on the
+                  Internet: Timestamps", RFC 3339, July 2002.
+
+      [RFC3986]   Berners-Lee, T., Fielding, R., and L. Masinter,
+                  "Uniform Resource Identifier (URI): Generic Syntax"
+                  STD 66, RFC 3986, January 2005.
+
+      [RFC4251]   Ylonen, T.  and C. Lonvick, Ed., "The Secure Shell
+                  (SSH) Protocol Architecture", RFC 4251, January 2006.
+
+      [RFC4627]   Crockford, D., "The application/json Media Type for
+                  JavaScript Object Notation (JSON)", RFC 4627, July
+                  2006.
+
+      [RFC4648]   Josefsson, S., "The Base16, Base32, and Base64 Data
+                  Encodings", RFC 4648, October 2006.
+
+      [RFC6265]   Barth, A., "HTTP State Management Mechanism", RFC
+                  6265, April 2011.
+
+      [ACSCF]     Simpson, W., and P. Vixie, "Defiance Address-Change
+                  Signaling - Concepts and Facilities", work in
+                  progress, draft-simpson-acscf-2013May04
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 39]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+   Informative References
+
+      [RFC5952]   Kawamura, S., and M. Kawashima, "A Recommendation for
+                  IPv6 Address Text Representation", August 2010.
+
+      [Tor]       Dingledine, R., and N. Mathewson, "Tor Protocol
+                  Specification".
+                  https://gitweb.torproject.org/tor-
+                  spec.git?a=blob_plain;hb=HEAD;f=tor-spec.txt
+
+
+   Author's Address
+
+      Questions about this document can be directed to:
+
+         William Allen Simpson
+         DayDreamer
+         Computer Systems Consulting Services
+         1384 Fontaine
+         Madison Heights, Michigan  48071
+
+             William.Allen.Simpson@Gmail.com
+
+
+         Paul Vixie
+         Internet Software Consortium
+         950 Charter Street
+         Redwood City, California  94063
+
+             vixie@isc.org
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page 40]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page ii]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+
+                             [1mTable of Contents[0m
+
+
+        1.     Introduction  . . . . . . . . . . . . . . . . . . . .   1
+           1.1       Terminology . . . . . . . . . . . . . . . . . .   1
+           1.2       Gateway Provisioning (Simplified) . . . . . . .   2
+           1.3       Discovery Provisioning (Simplified) . . . . . .   2
+           1.4       Initial Contact (Simplified)  . . . . . . . . .   3
+           1.5       Redirect Contact (Simplified) . . . . . . . . .   3
+           1.6       Bridge Relay (Simplified) . . . . . . . . . . .   4
+        2.     Transactions  . . . . . . . . . . . . . . . . . . . .   4
+           2.1       Transaction_Accept (Ack)  . . . . . . . . . . .   5
+           2.2       Transaction_Modify (Nak)  . . . . . . . . . . .   6
+           2.3       Transaction_Reject  . . . . . . . . . . . . . .   6
+           2.4       Transaction_Request . . . . . . . . . . . . . .   7
+        3.     Common Attributes . . . . . . . . . . . . . . . . . .   8
+           3.1       AP_state Attribute  . . . . . . . . . . . . . .   8
+           3.2       IP_address Attribute  . . . . . . . . . . . . .   8
+           3.3       IP_block Attribute  . . . . . . . . . . . . . .   9
+           3.4       IP_blocks Attribute . . . . . . . . . . . . . .   9
+           3.5       IP_subheader Attribute  . . . . . . . . . . . .   9
+           3.6       Discriminator Attribute . . . . . . . . . . . .  10
+           3.7       Encapsulation Attribute . . . . . . . . . . . .  10
+           3.8       Encapsulations Attribute  . . . . . . . . . . .  10
+           3.9       Contact Attribute . . . . . . . . . . . . . . .  11
+           3.10      Contact_pairing Attribute . . . . . . . . . . .  11
+           3.11      Contact_logging Attribute . . . . . . . . . . .  11
+        4.     Scheme-specific Attributes  . . . . . . . . . . . . .  12
+           4.1       Camouflage Attribute  . . . . . . . . . . . . .  12
+           4.2       HTTP_Cookie Attribute . . . . . . . . . . . . .  12
+           4.3       HTTP_Referer Attribute  . . . . . . . . . . . .  13
+        5.     Security Attributes . . . . . . . . . . . . . . . . .  13
+           5.1       Security_logging Attribute  . . . . . . . . . .  14
+        6.     User Provisioning Attributes  . . . . . . . . . . . .  14
+           6.1       BR_Access Attribute . . . . . . . . . . . . . .  14
+           6.2       BR_Access_List Attribute  . . . . . . . . . . .  15
+           6.3       BR_Contact_List Attribute . . . . . . . . . . .  15
+           6.4       BR_Transport_List Attribute . . . . . . . . . .  15
+           6.5       Discovery_Access Attribute  . . . . . . . . . .  16
+           6.6       Discovery_Access_List Attribute . . . . . . . .  16
+           6.7       Discovery_Interval Attribute  . . . . . . . . .  17
+           6.8       Discovery_Provisioning Attribute  . . . . . . .  17
+        7.     Gateway Provisioning Details  . . . . . . . . . . . .  18
+           7.1       Address Pool Creation . . . . . . . . . . . . .  18
+           7.2       Address Pool Deletion . . . . . . . . . . . . .  19
+           7.3       Address Pool Maintenance  . . . . . . . . . . .  20
+              7.3.1  Address Pool Idle . . . . . . . . . . . . . . .  21
+
+
+
+Simpson, Vixie           expires after 6 months                 ^L[Page i]
+
+
+
+
+
+RFC DRAFT                         ACSIS                   5 January 2015
+
+
+              7.3.2  Address Pool Initial Contacts . . . . . . . . .  22
+              7.3.3  Address Pool Redirect Contacts  . . . . . . . .  23
+              7.3.4  Address Pool Relays . . . . . . . . . . . . . .  24
+              7.3.5  Address Pool Unusable . . . . . . . . . . . . .  25
+        8.     Discovery Provisioning Details  . . . . . . . . . . .  25
+           8.1       Discovery Request . . . . . . . . . . . . . . .  26
+           8.2       Discovery Accept  . . . . . . . . . . . . . . .  27
+        9.     Contact Details . . . . . . . . . . . . . . . . . . .  27
+           9.1       Initial Contact . . . . . . . . . . . . . . . .  28
+              9.1.1  Initial Referer . . . . . . . . . . . . . . . .  28
+              9.1.2  Initial Set-Cookie(s) . . . . . . . . . . . . .  29
+           9.2       Initial Logging . . . . . . . . . . . . . . . .  29
+           9.3       Initial-Redirect Update . . . . . . . . . . . .  30
+           9.4       Redirect Contact  . . . . . . . . . . . . . . .  31
+              9.4.1  Redirect Referer  . . . . . . . . . . . . . . .  32
+           9.5       Redirect Logging  . . . . . . . . . . . . . . .  32
+           9.6       Bridge Relay(s) . . . . . . . . . . . . . . . .  33
+           9.7       Bridge Relay Logging  . . . . . . . . . . . . .  34
+        10.    Open issues . . . . . . . . . . . . . . . . . . . . .  35
+        ACKNOWLEDGMENTS  . . . . . . . . . . . . . . . . . . . . . .  36
+        DESIGN CONSIDERATIONS  . . . . . . . . . . . . . . . . . . .  37
+        OPERATIONAL CONSIDERATIONS . . . . . . . . . . . . . . . . .  38
+        SECURITY CONSIDERATIONS  . . . . . . . . . . . . . . . . . .  38
+        NORMATIVE REFERENCES . . . . . . . . . . . . . . . . . . . .  39
+        INFORMATIVE REFERENCES . . . . . . . . . . . . . . . . . . .  40
+        CONTACTS . . . . . . . . . . . . . . . . . . . . . . . . . .  40
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Simpson, Vixie           expires after 6 months                ^L[Page ii]
+
+
