@@ -2,7 +2,7 @@
 
 for s in $(seq 1 3);
 do
-	for i in $(seq 0 255);
+	for i in $(seq 48 63);
 	do
 		ip addr add 10.$s.$s.$i/32 dev lo
 	done

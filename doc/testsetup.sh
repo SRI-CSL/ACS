@@ -24,9 +24,9 @@ set -e
 ./acsgw.go --setup-db
 
 # Setup Address pools
-./acsgw.go --pool-add 10.1.1.0/24
-#./acsgw.go --pool-add 10.2.2.0/24
-#./acsgw.go --pool-add 10.3.3.0/24
+./acsgw.go --pool-add 10.1.1.48/28
+./acsgw.go --pool-add 10.2.2.48/28
+./acsgw.go --pool-add 10.3.3.48/28
 #./acsgw.go --pool-add 2001:db8:6000:1111::/120
 #./acsgw.go --pool-add 2001:db8:6000:2222::/120
 
