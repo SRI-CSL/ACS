@@ -537,9 +537,29 @@ data very redundant.
 
 But even with FEC the adversary could just add a char every third
 letter and remove those and be quite happy, visually the same, but our
-steg would be broken.
+steganography would be broken.
 
 Eg changing just 's' into <span>s</span> for HTML content. We could
 partially 'solve' that one by asking the in browser DOM for the actual
 rendered text and thus ignoring whitespace though.
+
+#### Future Work
+
+##### Using steganography for ACS responses
+
+Instead of returning plaintext answers, we should be employing a library that returns a valid HTTP object.
+
+One such tool that could be useful is StegoTorus.
+
+The proposed steg functions are simply:
+```
+bool httpsteg_encode(const char *message, uint64_t msglen, something_t keyparams, char *stegmsg, uint64_t *steglen, bool is_http_request, uint64_t chunkid, uint64_t *offset);
+bool httpsteg_decode(const char *stegmsg, uint64_t msglen, something_t keyparams, char *message, uint64_t *msglen, uint64_t *chunkid, uint64_t *offset, uint64_t *length);
+```
+
+httpsteg_encode() encodes a message in a single (when chunkid = 0) request/answer (depending on is_http_request, true = request, false = reply) and returns the offset inside message indicating to how far the message was encoded.
+When single_request is not set this thus means multiple calls to steg_encode() have to be made to generate different requests/answers. (This can be used by StegoTorus? for instance to encode a whole stream). For repeat-calls offset should be the offset to start encoding at, for first call offset should be 0.
+
+httpsteg_decode() decodes a request/answer (easily detected based on the "HTTP/x.x" as the first few bytes indicating an answer) and returns which chunkid it belongs to and it's offset inside that chunk along with the total length.
+An optional parameter could be the selection of what content-types would be appropriate, but I rather leave that over to the steg-engine. ACS is agnostic to that anyway and so should anything else. Though there should be a feedback loop into the system to indicate that a request never made it to the other side in case that specific type is being blocked.
 
