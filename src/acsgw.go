@@ -20,6 +20,7 @@ import (
 
 	/* Own tools */
 	"./ap"
+	"./apdb"
 )
 
 /* Global variables */
