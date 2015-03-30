@@ -3,21 +3,10 @@ package apdb
 import (
 	_ "github.com/lib/pq"
 	"bufio"
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
-	"math"
-	"net"
-	"net/http"
 	"os"
-        "strings"
-	"strconv"
-        "time"
 )
 
 func DB_setup_psql(db_name string, db_user string) {

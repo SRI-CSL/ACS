@@ -790,12 +790,12 @@ func main() {
 
 	if *f_setup_psql {
 		log.Println("SETUP DB")
-		ap.DB_setup_psql(db_name, db_user);
+		apdb.DB_setup_psql(db_name, db_user);
 		return
 	}
 
 	if *f_setup_db {
-		ap.DB_setup_schema(db_name, db_user, "acsdb.psql");
+		apdb.DB_setup_schema(db_name, db_user, "acsdb.psql");
 		return
 	}
 

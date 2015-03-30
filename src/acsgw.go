@@ -871,12 +871,12 @@ func main() {
 	flag.Parse()
 
 	if *f_setup_psql {
-		ap.DB_setup_psql(db_name, db_user);
+		apdb.DB_setup_psql(db_name, db_user);
 		return
 	}
 
 	if *f_setup_db {
-		ap.DB_setup_schema(db_name, db_user, "acsgw.psql");
+		apdb.DB_setup_schema(db_name, db_user, "acsgw.psql");
 		return
 	}
 
